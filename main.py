@@ -28,8 +28,9 @@ def main():
     ap.add_argument("--upS", type=int, default=0, help="servo PWM for pen up (M3 S..)") 
     ap.add_argument("--dwell", type=float, default=0.10, help="dwell after servo toggle (sec)") 
     ap.add_argument("--preview_svg", default=None, help="optional SVG preview path") 
-    ap.add_argument("--render_scale", type=float, default=1.0,
-                help="compute hatches on a larger virtual canvas, then downscale coords for output")
+    ap.add_argument("--render_scale", type=float, default=1.0, help="compute hatches on a larger virtual canvas, then downscale coords for output")
+    ap.add_argument("--outline_buf_mm", type=float, default=0.30, help="Do not hatch within this distance from outlines")
+    ap.add_argument("--shade_thresh", type=float, default=None, help="Optional [0..1] tone cutoff to restrict hatching to darker regions")
     args = ap.parse_args()
 
     # after parsing args:
@@ -45,55 +46,77 @@ def main():
         img, virt_ppm,
         blur_ksize=3,
         binarize="otsu",          # or "adaptive" for uneven lighting
-        erode_px=1,               # try 0→2 depending on stroke thickness
+        erode_px=3,               # try 0→2 depending on stroke thickness
         simplify_eps_mm=0.02,
         prune_spur_mm=0.05,
     )
 
-    # Build layers 
-    hatched: List[Segment] = [] 
-    for ang in args.angles: 
-        layer = hatch_layer( img, virt_w, virt_h, virt_ppm, angle_deg=ang, 
-                            d_min=args.dmin, d_max=args.dmax, 
-                            gamma_tone=args.gamma, d_nom=None, 
-                            probe_step_mm=args.probe, keep_alpha=args.alpha) 
-        hatched.extend(layer)
+    # # ---- build shading mask (image coords, top-left origin) ----
+    # buf_px = max(1, int(round(args.outline_buf_mm * virt_ppm)))
+    # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*buf_px+1, 2*buf_px+1))
+    # cv2.imshow("Kernel Image", kernel)
+    # cv2.waitKey(0)
 
-    # Order segments 
-    outlines_ord = order_segments_greedy(centerlines)
-    hatch_ord    = order_segments_greedy(hatched)
-    combined_ord = outlines_ord + hatch_ord
-    scale = 1.0 / args.render_scale
-    ordered = [[(x*scale, y*scale) for (x,y) in poly] for poly in combined_ord]
+    # # bw is strokes=255, background=0 (from outline.py)
+    # outline_block = cv2.dilate(bw, kernel)
+    # cv2.imshow("Outline Image", outline_block)
+    # cv2.waitKey(0)
+
+    # # start with "keep everywhere"
+    # shade_mask = (255 - outline_block)
+
+    # # optionally restrict to darker tones (e.g., hatch only where img <= 0.7)
+    # if args.shade_thresh is not None:
+    #     tone_mask = ( (img <= float(args.shade_thresh)).astype("uint8") * 255 )
+    #     shade_mask = cv2.bitwise_and(shade_mask, tone_mask)
+    #     cv2.imshow("Shade Mask", shade_mask)
+    #     cv2.waitKey(0)
+
+    # # Build layers 
+    # hatched: List[Segment] = [] 
+    # for ang in args.angles: 
+    #     layer = hatch_layer( img, virt_w, virt_h, virt_ppm, angle_deg=ang, 
+    #                         d_min=args.dmin, d_max=args.dmax, 
+    #                         gamma_tone=args.gamma, d_nom=None, 
+    #                         probe_step_mm=args.probe, keep_alpha=args.alpha,
+    #                         mask=shade_mask) 
+    #     hatched.extend(layer)
+
+    # # Order segments 
+    # outlines_ord = order_segments_greedy(centerlines)
+    # hatch_ord    = order_segments_greedy(hatched)
+    # combined_ord = outlines_ord + hatch_ord
+    # scale = 1.0 / args.render_scale
+    # ordered = [[(x*scale, y*scale) for (x,y) in poly] for poly in combined_ord]
     
-    # --- Plot ---
-    fig, ax = plt.subplots(figsize=(8, 5))
-    # draw rectangle
-    ax.plot([0, args.canvas_w, args.canvas_w, 0, 0],
-            [0, 0, args.canvas_h, args.canvas_h, 0])
+    # # --- Plot ---
+    # fig, ax = plt.subplots(figsize=(8, 5))
+    # # draw rectangle
+    # ax.plot([0, args.canvas_w, args.canvas_w, 0, 0],
+    #         [0, 0, args.canvas_h, args.canvas_h, 0])
 
-    for pts in ordered:
-        x_vals, y_vals = zip(*pts)
-        ax.plot(x_vals, y_vals)
+    # for pts in ordered:
+    #     x_vals, y_vals = zip(*pts)
+    #     ax.plot(x_vals, y_vals)
 
-    plt.show()
+    # plt.show()
     
-    # Optional preview  
-    try: 
-        export_preview_svg(args.preview_svg, ordered, args.canvas_w, args.canvas_h) 
-    except Exception as e: 
-        print("[warn] SVG preview failed:", e)
+    # # Optional preview  
+    # try: 
+    #     export_preview_svg(args.preview_svg, ordered, args.canvas_w, args.canvas_h) 
+    # except Exception as e: 
+    #     print("[warn] SVG preview failed:", e)
 
-    # Write G-code (servo) 
-    write_gcode( 
-        ordered, 
-        outfile=args.outfile, 
-        xy_feed=args.feed, 
-        pen_down_s=args.downS, 
-        pen_up_s=args.upS, 
-        dwell_after_toggle=args.dwell, 
-        header_comment=f"Shaded hatch from {args.image}", ) 
-    print(f"✔ G-code saved to {args.outfile} |  outlines: {len(outlines_ord)}  hatch segments: {len(hatch_ord)}")
+    # # Write G-code (servo) 
+    # write_gcode( 
+    #     ordered, 
+    #     outfile=args.outfile, 
+    #     xy_feed=args.feed, 
+    #     pen_down_s=args.downS, 
+    #     pen_up_s=args.upS, 
+    #     dwell_after_toggle=args.dwell, 
+    #     header_comment=f"Shaded hatch from {args.image}", ) 
+    # print(f"✔ G-code saved to {args.outfile} |  outlines: {len(outlines_ord)}  hatch segments: {len(hatch_ord)}")
 
 if __name__ == "__main__":
     main()

@@ -38,11 +38,15 @@ def extract_centerlines_lineart(
         )
     else:
         _, bw = cv2.threshold(img8, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        cv2.imshow("Outline BW Image", bw)
+        cv2.waitKey(0)
 
     # 3) (Optional) shrink very thick lines slightly before thinning
     if erode_px and erode_px > 0:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erode_px*2+1, erode_px*2+1))
         bw = cv2.erode(bw, k)
+        cv2.imshow("Erode Image", bw)
+        cv2.waitKey(0)
 
     # 4) Thinning (skeletonization) => 1-px centerlines
     try:
