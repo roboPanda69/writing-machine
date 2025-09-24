@@ -96,7 +96,7 @@ def extract_centerlines_lineart(
                 keep.append(s)
         segs = keep
 
-    # --- Plot ---
+    # --- To Plot ---
     fig, ax = plt.subplots(figsize=(8, 5))
 
     for pts in segs:

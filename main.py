@@ -1,11 +1,13 @@
 import cv2
 from typing import List
+import matplotlib.pyplot as plt
 import argparse
 
 # import local writer
 from gcode import write_gcode, Segment
 from tone import load_tone
-from hatch import hatch_layer, export_preview_svg, extract_centerlines_lineart, build_shade_mask
+from hatch import hatch_layer, export_preview_svg
+from outline import extract_centerlines_lineart
 from plan import order_segments_greedy
 
 def main():
@@ -48,18 +50,13 @@ def main():
         prune_spur_mm=0.05,
     )
 
-    shade_mask = build_shade_mask(
-            img, bw, thresh_rel=0.5, edge_dilate_px=1, blur_ksize=2
-        )
-
     # Build layers 
     hatched: List[Segment] = [] 
     for ang in args.angles: 
         layer = hatch_layer( img, virt_w, virt_h, virt_ppm, angle_deg=ang, 
                             d_min=args.dmin, d_max=args.dmax, 
                             gamma_tone=args.gamma, d_nom=None, 
-                            probe_step_mm=args.probe, keep_alpha=args.alpha,
-                            mask=shade_mask) 
+                            probe_step_mm=args.probe, keep_alpha=args.alpha) 
         hatched.extend(layer)
 
     # Order segments 
@@ -69,6 +66,18 @@ def main():
     scale = 1.0 / args.render_scale
     ordered = [[(x*scale, y*scale) for (x,y) in poly] for poly in combined_ord]
     
+    # --- Plot ---
+    fig, ax = plt.subplots(figsize=(8, 5))
+    # draw rectangle
+    ax.plot([0, args.canvas_w, args.canvas_w, 0, 0],
+            [0, 0, args.canvas_h, args.canvas_h, 0])
+
+    for pts in ordered:
+        x_vals, y_vals = zip(*pts)
+        ax.plot(x_vals, y_vals)
+
+    plt.show()
+    
     # Optional preview  
     try: 
         export_preview_svg(args.preview_svg, ordered, args.canvas_w, args.canvas_h) 
@@ -77,7 +86,7 @@ def main():
 
     # Write G-code (servo) 
     write_gcode( 
-        outlines_ord, 
+        ordered, 
         outfile=args.outfile, 
         xy_feed=args.feed, 
         pen_down_s=args.downS, 

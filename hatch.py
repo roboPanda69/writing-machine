@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from shapely.geometry import LineString, Polygon, box
+from shapely.geometry import LineString, box
 import math
 from typing import List, Tuple
 import svgwrite
@@ -121,17 +121,17 @@ mask: np.ndarray | None = None,
                     run = []
                 prev_keep = keep
 
-    # --- Plot ---
-    fig, ax = plt.subplots(figsize=(8, 5))
-    # draw rectangle
-    ax.plot([0, canvas_w_mm, canvas_w_mm, 0, 0],
-            [0, 0, canvas_h_mm, canvas_h_mm, 0])
+    # # --- To Plot ---
+    # fig, ax = plt.subplots(figsize=(8, 5))
+    # # draw rectangle
+    # ax.plot([0, canvas_w_mm, canvas_w_mm, 0, 0],
+    #         [0, 0, canvas_h_mm, canvas_h_mm, 0])
 
-    for pts in segments:
-        x_vals, y_vals = zip(*pts)
-        ax.plot(x_vals, y_vals)
+    # for pts in segments:
+    #     x_vals, y_vals = zip(*pts)
+    #     ax.plot(x_vals, y_vals)
 
-    plt.show()
+    # plt.show()
 
     return segments
 
@@ -144,108 +144,3 @@ def export_preview_svg(path, polys, canvas_w_mm, canvas_h_mm):
         pts = [(x, H-y) for (x,y) in poly]  # flip Y for image coords
         dwg.add(dwg.polyline(points=pts, stroke="black", fill="none", stroke_width=0.2))
     dwg.save()
-
-# def extract_outlines(
-#     I: np.ndarray,
-#     px_per_mm: float,
-#     canny_low: int = 80,
-#     canny_high: int = 180,
-#     simplify_eps_mm: float = 0.20,
-# ) -> tuple[list[Segment], np.ndarray]:
-#     """
-#     Returns (outline_segments_mm, edge_map_px).
-#     - I is grayscale [0,1] with shape (Hpx, Wpx)
-#     - outlines are returned as list[Segment] in mm coords (origin bottom-left, like your hatch)
-#     """
-#     Hpx, Wpx = I.shape
-#     img8 = (I * 255.0).astype(np.uint8)
-#     edges = cv2.Canny(img8, canny_low, canny_high)
-#     cv2.imshow("Canny Image", edges)
-#     cv2.waitKey(0)
-
-#     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
-
-#     # helper: px→mm with origin at bottom-left (consistent with your preview/export)
-#     def px_to_mm(pt):
-#         x_px, y_px = float(pt[0]), float(pt[1])
-#         x_mm = x_px / px_per_mm
-#         y_mm = (Hpx - 1 - y_px) / px_per_mm
-#         return (x_mm, y_mm)
-
-#     eps_px = simplify_eps_mm * px_per_mm
-#     outlines: list[Segment] = []
-#     for c in contours:
-#         if len(c) < 2:
-#             continue
-#         # simplify with RDP in px domain (polyline)
-#         c2 = cv2.approxPolyDP(c, epsilon=eps_px, closed=False)
-#         pts_px = c2.reshape(-1, 2)
-#         if len(pts_px) < 2:
-#             continue
-#         poly_mm: Segment = [px_to_mm(p) for p in pts_px]
-#         outlines.append(poly_mm)
-
-#     # --- Plot ---
-#     fig, ax = plt.subplots(figsize=(8, 5))
-#     # draw rectangle
-
-#     for pts in outlines:
-#         x_vals, y_vals = zip(*pts)
-#         ax.plot(x_vals, y_vals)
-
-#     plt.show()
-
-#     return outlines, edges
-
-#     # Draw contours on a copy of the original image
-#     # img_contours = img8.copy()
-#     # cv2.drawContours(img_contours, contours, -1, (0, 255, 0), 2) # Draw all contours in green with thickness 2
-
-#     # cv2.imshow("Contour Image", img_contours)
-#     # cv2.waitKey(0)
-
-
-def build_shade_mask(
-    I: np.ndarray,
-    edge_map_px: np.ndarray,
-    thresh_rel: float = 0.55,      # lower => more hatched area
-    edge_dilate_px: int = 2,       # exclude a band around edges
-    blur_ksize: int = 5,
-) -> np.ndarray:
-    """
-    Returns uint8 mask same size as I: 255 where hatching is allowed, 0 elsewhere.
-    """
-    g = I.astype(np.float32)
-    if blur_ksize > 1:
-        k = (blur_ksize | 1)
-        g = cv2.GaussianBlur(g, (k, k), 0)
-
-    # Darker-than threshold
-    mask = (g <= thresh_rel).astype(np.uint8) * 255
-    cv2.imshow("Mask Image1", mask)
-    cv2.waitKey(0)
-
-    # 3) Ensure thin, binary edges
-    edges = (edge_map_px > 0).astype(np.uint8) * 255
-    cv2.imshow("Mask Image2", edges)
-    cv2.waitKey(0)
-
-    # 4) Distance transform: distance (in pixels) to nearest edge
-    inv = cv2.bitwise_not(edges)                 # edges=0, background=255
-    dist = cv2.distanceTransform(inv, cv2.DIST_L2, 5)  # float32, pixels
-
-    gap_px = max(1, int(round(edge_dilate_px)))  # min 1 px
-    keep_far = (dist >= gap_px).astype(np.uint8) * 255
-
-    # 5) Keep only shaded pixels that are also far from edges
-    mask = cv2.bitwise_and(mask, keep_far)
-    cv2.imshow("Mask Image3", mask)
-    cv2.waitKey(0)
-
-    # # Clean small specks
-    # mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,
-    #                         cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3)))
-    
-    # cv2.imshow("Mask Image4", mask)
-    # cv2.waitKey(0)
-    return mask
