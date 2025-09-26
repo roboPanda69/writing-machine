@@ -43,14 +43,14 @@ def detect_solid_blobs(
     t = np.percentile(vals, 25)         # lower quartile works nicely for line art
     dark = (gray01 <= t).astype("uint8") * 255
     cand = cv2.bitwise_and(dark, fg_mask)
-    cv2.imshow("CAND Image", cand)
-    cv2.waitKey(0)
+    # cv2.imshow("CAND Image", cand)
+    # cv2.waitKey(0)
 
     # close tiny gaps so the pupil is solid
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
     cand = cv2.morphologyEx(cand, cv2.MORPH_CLOSE, k, iterations=1)
-    cv2.imshow("CAND Image (After filing gaps)", cand)
-    cv2.waitKey(0)
+    # cv2.imshow("CAND Image (After filing gaps)", cand)
+    # cv2.waitKey(0)
 
     num, lab, stats, cent = cv2.connectedComponentsWithStats(cand, connectivity=8)
     out = np.zeros_like(fg_mask)
@@ -60,8 +60,8 @@ def detect_solid_blobs(
             continue
         # compute solidity and circularity
         comp = (lab == i).astype("uint8") * 255
-        cv2.imshow(f"Comp {i}", comp)
-        cv2.waitKey(0)
+        # cv2.imshow(f"Comp {i}", comp)
+        # cv2.waitKey(0)
         cnts, _ = cv2.findContours(comp, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         if not cnts: 
             continue

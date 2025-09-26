@@ -57,58 +57,39 @@ def main():
     buf_px = max(1, int(round(args.outline_buf_mm * args.ppm)))
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*buf_px+1, 2*buf_px+1))
     fg_mask = cv2.dilate(bw, k)
-    cv2.imshow("Dilate Image", fg_mask)
-    cv2.waitKey(0)
+    # cv2.imshow("Dilate Image", fg_mask)
+    # cv2.waitKey(0)
 
     # 2) Solid blobs (eye, tiny darks)
     # 'img' should be grayscale [0..1] in image coords (y-down).
     blobs = detect_solid_blobs(img, fg_mask,
-                            min_area_px=int(100),   # ~0.5 mm^2
-                            max_area_px=int(100000),   # ~25  mm^2
+                            min_area_px=int(500),   # ~0.5 mm^2
+                            max_area_px=int(1000),   # ~25  mm^2
                             min_solidity=0.9)
     
-    cv2.imshow("Blob Image", blobs)
-    cv2.waitKey(0)
+    # cv2.imshow("Blob Image", blobs)
+    # cv2.waitKey(0)
 
     # 3) Optional: “darker tone” mask for areas like feet shadows
     # Use a stricter percentile to avoid hatching grey paper.
     vals = img[fg_mask > 0]
     t_dark = np.percentile(vals, 20)  # darkest 20% inside bird
     darker = (img <= t_dark).astype("uint8") * 255
-    cv2.imshow("Darker Mask", darker)
-    cv2.waitKey(0)
+    # cv2.imshow("Darker Mask", darker)
+    # cv2.waitKey(0)
 
     # 4) Shade mask = blobs (must-fill) ∪ darker (soft shading)
     shade_mask_raw = cv2.bitwise_or(blobs, darker)
-    cv2.imshow("Shade Mask Raw", shade_mask_raw)
-    cv2.waitKey(0)
+    # cv2.imshow("Shade Mask Raw", shade_mask_raw)
+    # cv2.waitKey(0)
 
     # 5) Don’t hatch over outlines → carve a moat
     outline_block = cv2.dilate(bw, k)                   # reuse same buffer kernel
-    shade_mask = cv2.bitwise_and(shade_mask_raw, outline_block)
-    cv2.imshow("Shade Mask", shade_mask)
-    cv2.waitKey(0)
-
-    # # # ---- build shading mask (image coords, top-left origin) ----
-    # # buf_px = max(1, int(round(args.outline_buf_mm * virt_ppm)))
-    # # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*buf_px+1, 2*buf_px+1))
-    # # cv2.imshow("Kernel Image", kernel)
-    # # cv2.waitKey(0)
-
-    # # # bw is strokes=255, background=0 (from outline.py)
-    # # outline_block = cv2.dilate(bw, kernel)
-    # # cv2.imshow("Outline Image", outline_block)
-    # # cv2.waitKey(0)
-
-    # # # start with "keep everywhere"
-    # # shade_mask = (255 - outline_block)
-
-    # # # optionally restrict to darker tones (e.g., hatch only where img <= 0.7)
-    # # if args.shade_thresh is not None:
-    # #     tone_mask = ( (img <= float(args.shade_thresh)).astype("uint8") * 255 )
-    # #     shade_mask = cv2.bitwise_and(shade_mask, tone_mask)
-    # #     cv2.imshow("Shade Mask", shade_mask)
-    # #     cv2.waitKey(0)
+    # cv2.imshow("Outline Block", 255-outline_block)
+    # cv2.waitKey(0)
+    shade_mask = cv2.bitwise_and(shade_mask_raw, 255-outline_block)
+    # cv2.imshow("Shade Mask", shade_mask)
+    # cv2.waitKey(0)
 
     # Build layers 
     hatched: List[Segment] = [] 
@@ -117,7 +98,7 @@ def main():
                             d_min=args.dmin, d_max=args.dmax, 
                             gamma_tone=args.gamma, d_nom=None, 
                             probe_step_mm=args.probe, keep_alpha=args.alpha,
-                            mask=shade_mask) 
+                            mask=blobs) 
         hatched.extend(layer)
 
     # Order segments 

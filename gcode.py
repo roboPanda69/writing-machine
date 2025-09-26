@@ -14,7 +14,7 @@ def write_gcode(
     z_feed: float = 600.0, # unused for servo, kept for compatibility
     pen_down_s: int = 900,
     pen_up_s: int = 0,
-    dwell_after_toggle: float = 0.10,
+    dwell_after_toggle: float = 0.70,
     travel_lift_between: bool = True, # always true for servo toggles
     header_comment: str = "Pencil Shaded Render",
     origin_mm: Tuple[float, float] = (0.0, 0.0),
@@ -28,10 +28,10 @@ def write_gcode(
         w(f"( {header_comment} )\n")
         w("G21\n") # mm
         w("G90\n") # absolute
-        w("G92 X0 Y0 Z0\n")
         # ensure pen up
         w(f"M3 S{pen_up_s}\n")
         w(f"G4 P{dwell_after_toggle:.3f}\n")
+        w("G92 X0 Y0 Z0\n")
 
 
         for poly in segments:
