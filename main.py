@@ -2,10 +2,11 @@ import cv2
 from typing import List
 import matplotlib.pyplot as plt
 import argparse
+import numpy as np
 
 # import local writer
 from gcode import write_gcode, Segment
-from tone import load_tone
+from tone import load_tone, detect_solid_blobs
 from hatch import hatch_layer, export_preview_svg
 from outline import extract_centerlines_lineart
 from plan import order_segments_greedy
@@ -44,79 +45,116 @@ def main():
 
     centerlines, bw = extract_centerlines_lineart(
         img, virt_ppm,
-        blur_ksize=3,
+        blur_ksize=0,
         binarize="otsu",          # or "adaptive" for uneven lighting
         erode_px=3,               # try 0→2 depending on stroke thickness
         simplify_eps_mm=0.02,
         prune_spur_mm=0.05,
     )
 
-    # # ---- build shading mask (image coords, top-left origin) ----
-    # buf_px = max(1, int(round(args.outline_buf_mm * virt_ppm)))
-    # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*buf_px+1, 2*buf_px+1))
-    # cv2.imshow("Kernel Image", kernel)
-    # cv2.waitKey(0)
+    # 1) Foreground proxy for blob search:
+    # Dilate outline mask so thin strokes define a 'filled' bird region.
+    buf_px = max(1, int(round(args.outline_buf_mm * args.ppm)))
+    k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*buf_px+1, 2*buf_px+1))
+    fg_mask = cv2.dilate(bw, k)
+    cv2.imshow("Dilate Image", fg_mask)
+    cv2.waitKey(0)
 
-    # # bw is strokes=255, background=0 (from outline.py)
-    # outline_block = cv2.dilate(bw, kernel)
-    # cv2.imshow("Outline Image", outline_block)
-    # cv2.waitKey(0)
-
-    # # start with "keep everywhere"
-    # shade_mask = (255 - outline_block)
-
-    # # optionally restrict to darker tones (e.g., hatch only where img <= 0.7)
-    # if args.shade_thresh is not None:
-    #     tone_mask = ( (img <= float(args.shade_thresh)).astype("uint8") * 255 )
-    #     shade_mask = cv2.bitwise_and(shade_mask, tone_mask)
-    #     cv2.imshow("Shade Mask", shade_mask)
-    #     cv2.waitKey(0)
-
-    # # Build layers 
-    # hatched: List[Segment] = [] 
-    # for ang in args.angles: 
-    #     layer = hatch_layer( img, virt_w, virt_h, virt_ppm, angle_deg=ang, 
-    #                         d_min=args.dmin, d_max=args.dmax, 
-    #                         gamma_tone=args.gamma, d_nom=None, 
-    #                         probe_step_mm=args.probe, keep_alpha=args.alpha,
-    #                         mask=shade_mask) 
-    #     hatched.extend(layer)
-
-    # # Order segments 
-    # outlines_ord = order_segments_greedy(centerlines)
-    # hatch_ord    = order_segments_greedy(hatched)
-    # combined_ord = outlines_ord + hatch_ord
-    # scale = 1.0 / args.render_scale
-    # ordered = [[(x*scale, y*scale) for (x,y) in poly] for poly in combined_ord]
+    # 2) Solid blobs (eye, tiny darks)
+    # 'img' should be grayscale [0..1] in image coords (y-down).
+    blobs = detect_solid_blobs(img, fg_mask,
+                            min_area_px=int(100),   # ~0.5 mm^2
+                            max_area_px=int(100000),   # ~25  mm^2
+                            min_solidity=0.9)
     
-    # # --- Plot ---
-    # fig, ax = plt.subplots(figsize=(8, 5))
-    # # draw rectangle
-    # ax.plot([0, args.canvas_w, args.canvas_w, 0, 0],
-    #         [0, 0, args.canvas_h, args.canvas_h, 0])
+    cv2.imshow("Blob Image", blobs)
+    cv2.waitKey(0)
 
-    # for pts in ordered:
-    #     x_vals, y_vals = zip(*pts)
-    #     ax.plot(x_vals, y_vals)
+    # 3) Optional: “darker tone” mask for areas like feet shadows
+    # Use a stricter percentile to avoid hatching grey paper.
+    vals = img[fg_mask > 0]
+    t_dark = np.percentile(vals, 20)  # darkest 20% inside bird
+    darker = (img <= t_dark).astype("uint8") * 255
+    cv2.imshow("Darker Mask", darker)
+    cv2.waitKey(0)
 
-    # plt.show()
+    # 4) Shade mask = blobs (must-fill) ∪ darker (soft shading)
+    shade_mask_raw = cv2.bitwise_or(blobs, darker)
+    cv2.imshow("Shade Mask Raw", shade_mask_raw)
+    cv2.waitKey(0)
+
+    # 5) Don’t hatch over outlines → carve a moat
+    outline_block = cv2.dilate(bw, k)                   # reuse same buffer kernel
+    shade_mask = cv2.bitwise_and(shade_mask_raw, outline_block)
+    cv2.imshow("Shade Mask", shade_mask)
+    cv2.waitKey(0)
+
+    # # # ---- build shading mask (image coords, top-left origin) ----
+    # # buf_px = max(1, int(round(args.outline_buf_mm * virt_ppm)))
+    # # kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*buf_px+1, 2*buf_px+1))
+    # # cv2.imshow("Kernel Image", kernel)
+    # # cv2.waitKey(0)
+
+    # # # bw is strokes=255, background=0 (from outline.py)
+    # # outline_block = cv2.dilate(bw, kernel)
+    # # cv2.imshow("Outline Image", outline_block)
+    # # cv2.waitKey(0)
+
+    # # # start with "keep everywhere"
+    # # shade_mask = (255 - outline_block)
+
+    # # # optionally restrict to darker tones (e.g., hatch only where img <= 0.7)
+    # # if args.shade_thresh is not None:
+    # #     tone_mask = ( (img <= float(args.shade_thresh)).astype("uint8") * 255 )
+    # #     shade_mask = cv2.bitwise_and(shade_mask, tone_mask)
+    # #     cv2.imshow("Shade Mask", shade_mask)
+    # #     cv2.waitKey(0)
+
+    # Build layers 
+    hatched: List[Segment] = [] 
+    for ang in args.angles: 
+        layer = hatch_layer( img, virt_w, virt_h, virt_ppm, angle_deg=ang, 
+                            d_min=args.dmin, d_max=args.dmax, 
+                            gamma_tone=args.gamma, d_nom=None, 
+                            probe_step_mm=args.probe, keep_alpha=args.alpha,
+                            mask=shade_mask) 
+        hatched.extend(layer)
+
+    # Order segments 
+    outlines_ord = order_segments_greedy(centerlines)
+    hatch_ord    = order_segments_greedy(hatched)
+    combined_ord = outlines_ord + hatch_ord
+    scale = 1.0 / args.render_scale
+    ordered = [[(x*scale, y*scale) for (x,y) in poly] for poly in combined_ord]
     
-    # # Optional preview  
-    # try: 
-    #     export_preview_svg(args.preview_svg, ordered, args.canvas_w, args.canvas_h) 
-    # except Exception as e: 
-    #     print("[warn] SVG preview failed:", e)
+    # --- Plot ---
+    fig, ax = plt.subplots(figsize=(8, 5))
+    # draw rectangle
+    ax.plot([0, args.canvas_w, args.canvas_w, 0, 0],
+            [0, 0, args.canvas_h, args.canvas_h, 0])
 
-    # # Write G-code (servo) 
-    # write_gcode( 
-    #     ordered, 
-    #     outfile=args.outfile, 
-    #     xy_feed=args.feed, 
-    #     pen_down_s=args.downS, 
-    #     pen_up_s=args.upS, 
-    #     dwell_after_toggle=args.dwell, 
-    #     header_comment=f"Shaded hatch from {args.image}", ) 
-    # print(f"✔ G-code saved to {args.outfile} |  outlines: {len(outlines_ord)}  hatch segments: {len(hatch_ord)}")
+    for pts in ordered:
+        x_vals, y_vals = zip(*pts)
+        ax.plot(x_vals, y_vals)
+
+    plt.show()
+    
+    # Optional preview  
+    try: 
+        export_preview_svg(args.preview_svg, ordered, args.canvas_w, args.canvas_h) 
+    except Exception as e: 
+        print("[warn] SVG preview failed:", e)
+
+    # Write G-code (servo) 
+    write_gcode( 
+        ordered, 
+        outfile=args.outfile, 
+        xy_feed=args.feed, 
+        pen_down_s=args.downS, 
+        pen_up_s=args.upS, 
+        dwell_after_toggle=args.dwell, 
+        header_comment=f"Shaded hatch from {args.image}", ) 
+    print(f"✔ G-code saved to {args.outfile} |  outlines: {len(outlines_ord)}  hatch segments: {len(hatch_ord)}")
 
 if __name__ == "__main__":
     main()
