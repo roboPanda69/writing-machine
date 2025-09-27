@@ -29,8 +29,8 @@ def extract_centerlines_lineart(
     if blur_ksize and blur_ksize > 1:
         k = blur_ksize | 1
         img8 = cv2.GaussianBlur(img8, (k, k), 0)
-        # cv2.imshow("Gaussian Blur", img8)
-        # cv2.waitKey(0)
+        cv2.imshow("Gaussian Blur", img8)
+        cv2.waitKey(0)
 
     # 2) Binarize: strokes=255, background=0
     if binarize == "adaptive":
@@ -38,26 +38,26 @@ def extract_centerlines_lineart(
             img8, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,
             adaptive_block | 1, adaptive_C
         )
-        # cv2.imshow("Adaptive Threshold", bw)
-        # cv2.waitKey(0)
+        cv2.imshow("Adaptive Threshold", bw)
+        cv2.waitKey(0)
     else:
         _, bw = cv2.threshold(img8, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-        # cv2.imshow("Threshold", bw)
-        # cv2.waitKey(0)
+        cv2.imshow("Threshold", bw)
+        cv2.waitKey(0)
 
     # 3) (Optional) shrink very thick lines slightly before thinning
     if erode_px and erode_px > 0:
         k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (erode_px*2+1, erode_px*2+1))
         bw = cv2.erode(bw, k)
-        # cv2.imshow("Erode Image", bw)
-        # cv2.waitKey(0)
+        cv2.imshow("Erode Image", bw)
+        cv2.waitKey(0)
 
     # 4) Thinning (skeletonization) => 1-px centerlines
     try:
         from skimage.morphology import skeletonize
         skel = skeletonize((bw > 0).astype(bool)).astype(np.uint8) * 255
-        # cv2.imshow("Skeletonize Image", skel)
-        # cv2.waitKey(0)
+        cv2.imshow("Skeletonize Image", skel)
+        cv2.waitKey(0)
     except Exception:
         try:
             from cv2.ximgproc import thinning, THINNING_ZHANGSUEN
@@ -108,16 +108,16 @@ def extract_centerlines_lineart(
                 keep.append(s)
         segs = keep
 
-    # # --- To Plot ---
-    # fig, ax = plt.subplots(figsize=(8, 5))
+    # --- To Plot ---
+    fig, ax = plt.subplots(figsize=(8, 5))
 
-    # for pts in segs:
-    #     x_vals, y_vals = zip(*pts)
-    #     ax.plot(x_vals, y_vals)
+    for pts in segs:
+        x_vals, y_vals = zip(*pts)
+        ax.plot(x_vals, y_vals)
 
-    # plt.show()
+    plt.show()
 
-    # cv2.imshow("Black and White Image", bw)
-    # cv2.waitKey(0)
+    cv2.imshow("Black and White Image", bw)
+    cv2.waitKey(0)
 
     return segs, bw  # bw returned so you can preview/check binarization

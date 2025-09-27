@@ -45,51 +45,51 @@ def main():
 
     centerlines, bw = extract_centerlines_lineart(
         img, virt_ppm,
-        blur_ksize=0,
+        blur_ksize=2,
         binarize="otsu",          # or "adaptive" for uneven lighting
-        erode_px=3,               # try 0→2 depending on stroke thickness
+        erode_px=2,               # try 0→2 depending on stroke thickness
         simplify_eps_mm=0.02,
         prune_spur_mm=0.05,
     )
 
-    # 1) Foreground proxy for blob search:
-    # Dilate outline mask so thin strokes define a 'filled' bird region.
+    # # 1) Foreground proxy for blob search:
+    # # Dilate outline mask so thin strokes define a 'filled' bird region.
     buf_px = max(1, int(round(args.outline_buf_mm * args.ppm)))
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2*buf_px+1, 2*buf_px+1))
     fg_mask = cv2.dilate(bw, k)
-    # cv2.imshow("Dilate Image", fg_mask)
-    # cv2.waitKey(0)
+    cv2.imshow("Dilate Image", fg_mask)
+    cv2.waitKey(0)
 
-    # 2) Solid blobs (eye, tiny darks)
-    # 'img' should be grayscale [0..1] in image coords (y-down).
+    # # 2) Solid blobs (eye, tiny darks)
+    # # 'img' should be grayscale [0..1] in image coords (y-down).
     blobs = detect_solid_blobs(img, fg_mask,
-                            min_area_px=int(500),   # ~0.5 mm^2
-                            max_area_px=int(1000),   # ~25  mm^2
+                            min_area_px=int(0),   # ~0.5 mm^2
+                            max_area_px=int(1000000),   # ~25  mm^2
                             min_solidity=0.9)
     
-    # cv2.imshow("Blob Image", blobs)
-    # cv2.waitKey(0)
+    cv2.imshow("Blob Image", blobs)
+    cv2.waitKey(0)
 
     # 3) Optional: “darker tone” mask for areas like feet shadows
     # Use a stricter percentile to avoid hatching grey paper.
     vals = img[fg_mask > 0]
     t_dark = np.percentile(vals, 20)  # darkest 20% inside bird
     darker = (img <= t_dark).astype("uint8") * 255
-    # cv2.imshow("Darker Mask", darker)
-    # cv2.waitKey(0)
+    cv2.imshow("Darker Mask", darker)
+    cv2.waitKey(0)
 
     # 4) Shade mask = blobs (must-fill) ∪ darker (soft shading)
     shade_mask_raw = cv2.bitwise_or(blobs, darker)
-    # cv2.imshow("Shade Mask Raw", shade_mask_raw)
-    # cv2.waitKey(0)
+    cv2.imshow("Shade Mask Raw", shade_mask_raw)
+    cv2.waitKey(0)
 
     # 5) Don’t hatch over outlines → carve a moat
     outline_block = cv2.dilate(bw, k)                   # reuse same buffer kernel
-    # cv2.imshow("Outline Block", 255-outline_block)
-    # cv2.waitKey(0)
-    shade_mask = cv2.bitwise_and(shade_mask_raw, 255-outline_block)
-    # cv2.imshow("Shade Mask", shade_mask)
-    # cv2.waitKey(0)
+    cv2.imshow("Outline Block", 255-outline_block)
+    cv2.waitKey(0)
+    shade_mask = cv2.bitwise_and(shade_mask_raw, outline_block)
+    cv2.imshow("Shade Mask", shade_mask)
+    cv2.waitKey(0)
 
     # Build layers 
     hatched: List[Segment] = [] 
@@ -98,7 +98,7 @@ def main():
                             d_min=args.dmin, d_max=args.dmax, 
                             gamma_tone=args.gamma, d_nom=None, 
                             probe_step_mm=args.probe, keep_alpha=args.alpha,
-                            mask=blobs) 
+                            mask=shade_mask) 
         hatched.extend(layer)
 
     # Order segments 

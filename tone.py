@@ -43,16 +43,17 @@ def detect_solid_blobs(
     t = np.percentile(vals, 25)         # lower quartile works nicely for line art
     dark = (gray01 <= t).astype("uint8") * 255
     cand = cv2.bitwise_and(dark, fg_mask)
-    # cv2.imshow("CAND Image", cand)
-    # cv2.waitKey(0)
+    cv2.imshow("CAND Image", cand)
+    cv2.waitKey(0)
 
     # close tiny gaps so the pupil is solid
     k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3,3))
     cand = cv2.morphologyEx(cand, cv2.MORPH_CLOSE, k, iterations=1)
-    # cv2.imshow("CAND Image (After filing gaps)", cand)
-    # cv2.waitKey(0)
+    cv2.imshow("CAND Image (After filing gaps)", cand)
+    cv2.waitKey(0)
 
     num, lab, stats, cent = cv2.connectedComponentsWithStats(cand, connectivity=8)
+    print(stats)
     out = np.zeros_like(fg_mask)
     for i in range(1, num):
         area = stats[i, cv2.CC_STAT_AREA]
