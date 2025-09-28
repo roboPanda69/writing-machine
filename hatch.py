@@ -113,12 +113,21 @@ mask: np.ndarray | None = None,
                         run = [(x, y)]
                     else:
                         run.append((x, y))
+                
                 if (not keep or i == n_steps) and prev_keep and run:
-                    # close run
-                    # simplify tiny runs
                     if len(run) >= 2:
-                        segments.append(run)
+                        # keep only endpoints if short; otherwise simplify
+                        if len(run) <= 4:
+                            comp = [run[0], run[-1]]
+                        else:
+                            comp = simplify_polyline(run, eps=0.03)  # ~0.03 mm tolerance
+                        # Drop very short runs
+                        if len(comp) >= 2:
+                            x1,y1 = comp[0]; x2,y2 = comp[-1]
+                            if math.hypot(x2-x1, y2-y1) >= 0.10:  # min 0.1 mm segment
+                                segments.append(comp)
                     run = []
+                
                 prev_keep = keep
 
     # # --- To Plot ---
@@ -134,6 +143,29 @@ mask: np.ndarray | None = None,
     # plt.show()
 
     return segments
+
+def simplify_polyline(pts, eps=0.03):  # eps in mm; ~pen width fraction
+    import math
+    if len(pts) <= 2:
+        return pts
+    # RDP-lite using OpenCV if available; else manual
+    import numpy as np, cv2
+    arr = np.array(pts, dtype=np.float32).reshape(-1,1,2)
+    # Convert eps (mm) directly; we’re in mm coords already
+    simp = cv2.approxPolyDP(arr, epsilon=eps, closed=False).reshape(-1,2).tolist()
+    # Merge nearly collinear triples (angle ~180°)
+    out = [simp[0]]
+    for i in range(1, len(simp)-1):
+        x0,y0 = out[-1]; x1,y1 = simp[i]; x2,y2 = simp[i+1]
+        v1x,v1y = x1-x0, y1-y0
+        v2x,v2y = x2-x1, y2-y1
+        # area (cross) small & both segments non-trivial => remove middle
+        cross = abs(v1x*v2y - v1y*v2x)
+        if cross < 1e-3:  # tune: ~0.001 mm²
+            continue
+        out.append((x1,y1))
+    out.append(simp[-1])
+    return out
 
 def export_preview_svg(path, polys, canvas_w_mm, canvas_h_mm):
     W = canvas_w_mm

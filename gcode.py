@@ -60,3 +60,23 @@ def write_gcode(
         w(f"G4 P{dwell_after_toggle:.3f}\n")
         w("G0 X0 Y0\n")
         w("M2\n")
+
+def chain_touching_segments(segments, tol=0.02):
+    """Join consecutive polylines whose endpoints touch (within tol, mm)."""
+    def same(p, q): return abs(p[0]-q[0]) <= tol and abs(p[1]-q[1]) <= tol
+    out = []
+    cur = []
+    for seg in segments:
+        if not seg or len(seg) < 2:
+            continue
+        if not cur:
+            cur = seg[:]
+        else:
+            if same(cur[-1], seg[0]):           # end of cur meets start of seg
+                cur.extend(seg[1:])
+            else:
+                out.append(cur)
+                cur = seg[:]
+    if cur:
+        out.append(cur)
+    return out

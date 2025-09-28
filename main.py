@@ -5,11 +5,11 @@ import argparse
 import numpy as np
 
 # import local writer
-from gcode import write_gcode, Segment
+from gcode import write_gcode, Segment, chain_touching_segments
 from tone import load_tone, detect_solid_blobs
 from hatch import hatch_layer, export_preview_svg
 from outline import extract_centerlines_lineart
-from plan import order_segments_greedy
+from plan import order_segments_greedy, stitch_polylines
 
 def main():
     ap = argparse.ArgumentParser(description="Shaded image → hatch → G-code (servo)") 
@@ -45,9 +45,9 @@ def main():
 
     centerlines, bw = extract_centerlines_lineart(
         img, virt_ppm,
-        blur_ksize=2,
+        blur_ksize=0,
         binarize="otsu",          # or "adaptive" for uneven lighting
-        erode_px=2,               # try 0→2 depending on stroke thickness
+        erode_px=1,               # try 0→2 depending on stroke thickness
         simplify_eps_mm=0.02,
         prune_spur_mm=0.05,
     )
@@ -101,12 +101,17 @@ def main():
                             mask=shade_mask) 
         hatched.extend(layer)
 
-    # Order segments 
+    # Order segments
+    centerlines = stitch_polylines(centerlines, snap=0.03, angle_tol_deg=12.0)
+    hatched = stitch_polylines(hatched, snap=0.03, angle_tol_deg=12.0)
     outlines_ord = order_segments_greedy(centerlines)
     hatch_ord    = order_segments_greedy(hatched)
     combined_ord = outlines_ord + hatch_ord
     scale = 1.0 / args.render_scale
     ordered = [[(x*scale, y*scale) for (x,y) in poly] for poly in combined_ord]
+    ordered = order_segments_greedy(ordered)
+    ordered = chain_touching_segments(ordered, tol=0.02)
+
     
     # --- Plot ---
     fig, ax = plt.subplots(figsize=(8, 5))
