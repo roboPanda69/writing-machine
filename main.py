@@ -7,7 +7,7 @@ import numpy as np
 # import local writer
 from gcode import write_gcode, Segment, chain_touching_segments
 from tone import load_tone, detect_solid_blobs
-from hatch import hatch_layer, export_preview_svg
+from hatch import hatch_layer_medium, export_preview_svg, hatch_layer_high
 from outline import extract_centerlines_lineart
 from plan import order_segments_greedy, stitch_polylines
 
@@ -32,6 +32,7 @@ def main():
     ap.add_argument("--render_scale", type=float, default=1.0, help="compute hatches on a larger virtual canvas, then downscale coords for output")
     ap.add_argument("--outline_buf_mm", type=float, default=0.30, help="Do not hatch within this distance from outlines")
     ap.add_argument("--shade_thresh", type=float, default=None, help="Optional [0..1] tone cutoff to restrict hatching to darker regions")
+    ap.add_argument("--quality", default="medium", choices=["medium","high"], help="To set quality of the output")
     args = ap.parse_args()
 
     # after parsing args:
@@ -45,8 +46,8 @@ def main():
 
     centerlines, bw = extract_centerlines_lineart(
         img, virt_ppm,
-        blur_ksize=0,
-        binarize="otsu",          # or "adaptive" for uneven lighting
+        blur_ksize=2,
+        binarize="adaptive",          # or "adaptive" for uneven lighting
         erode_px=1,               # try 0→2 depending on stroke thickness
         simplify_eps_mm=0.02,
         prune_spur_mm=0.05,
@@ -63,7 +64,7 @@ def main():
     # # 2) Solid blobs (eye, tiny darks)
     # # 'img' should be grayscale [0..1] in image coords (y-down).
     blobs = detect_solid_blobs(img, fg_mask,
-                            min_area_px=int(0),   # ~0.5 mm^2
+                            min_area_px=int(1000),   # ~0.5 mm^2
                             max_area_px=int(1000000),   # ~25  mm^2
                             min_solidity=0.9)
     
@@ -91,39 +92,70 @@ def main():
     cv2.imshow("Shade Mask", shade_mask)
     cv2.waitKey(0)
 
-    # Build layers 
-    hatched: List[Segment] = [] 
-    for ang in args.angles: 
-        layer = hatch_layer( img, virt_w, virt_h, virt_ppm, angle_deg=ang, 
-                            d_min=args.dmin, d_max=args.dmax, 
-                            gamma_tone=args.gamma, d_nom=None, 
-                            probe_step_mm=args.probe, keep_alpha=args.alpha,
-                            mask=shade_mask) 
-        hatched.extend(layer)
+    if (args.quality=="medium"):
+        # Build layers 
+        hatched: List[Segment] = [] 
+        for ang in args.angles: 
+            layer = hatch_layer_medium( img, virt_w, virt_h, virt_ppm, angle_deg=ang, 
+                                d_min=args.dmin, d_max=args.dmax, 
+                                gamma_tone=args.gamma, d_nom=None, 
+                                probe_step_mm=args.probe, keep_alpha=args.alpha,
+                                mask=shade_mask) 
+            hatched.extend(layer)
+        # Order segments
+        centerlines = stitch_polylines(centerlines, snap=0.03, angle_tol_deg=12.0)
+        hatched = stitch_polylines(hatched, snap=0.03, angle_tol_deg=12.0)
+        outlines_ord = order_segments_greedy(centerlines)
+        hatch_ord    = order_segments_greedy(hatched)
+        combined_ord = outlines_ord + hatch_ord
+        scale = 1.0 / args.render_scale
+        ordered = [[(x*scale, y*scale) for (x,y) in poly] for poly in combined_ord]
+        ordered = order_segments_greedy(ordered)
+        ordered = chain_touching_segments(ordered, tol=0.02)
 
-    # Order segments
-    centerlines = stitch_polylines(centerlines, snap=0.03, angle_tol_deg=12.0)
-    hatched = stitch_polylines(hatched, snap=0.03, angle_tol_deg=12.0)
-    outlines_ord = order_segments_greedy(centerlines)
-    hatch_ord    = order_segments_greedy(hatched)
-    combined_ord = outlines_ord + hatch_ord
-    scale = 1.0 / args.render_scale
-    ordered = [[(x*scale, y*scale) for (x,y) in poly] for poly in combined_ord]
-    ordered = order_segments_greedy(ordered)
-    ordered = chain_touching_segments(ordered, tol=0.02)
+        
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(8, 5))
+        # draw rectangle
+        ax.plot([0, args.canvas_w, args.canvas_w, 0, 0],
+                [0, 0, args.canvas_h, args.canvas_h, 0])
 
-    
-    # --- Plot ---
-    fig, ax = plt.subplots(figsize=(8, 5))
-    # draw rectangle
-    ax.plot([0, args.canvas_w, args.canvas_w, 0, 0],
-            [0, 0, args.canvas_h, args.canvas_h, 0])
+        for pts in ordered:
+            x_vals, y_vals = zip(*pts)
+            ax.plot(x_vals, y_vals)
 
-    for pts in ordered:
-        x_vals, y_vals = zip(*pts)
-        ax.plot(x_vals, y_vals)
+        plt.show()
 
-    plt.show()
+    elif (args.quality=="high"):
+        # Build layers 
+        hatched: List[Segment] = [] 
+        for ang in args.angles: 
+            layer = hatch_layer_high( img, virt_w, virt_h, virt_ppm, angle_deg=ang, 
+                                d_min=args.dmin, d_max=args.dmax, 
+                                gamma_tone=args.gamma, d_nom=None, 
+                                probe_step_mm=args.probe, keep_alpha=args.alpha,
+                                mask=shade_mask) 
+            hatched.extend(layer)
+        # Order segments
+        outlines_ord = order_segments_greedy(centerlines)
+        hatch_ord    = order_segments_greedy(hatched)
+        combined_ord = outlines_ord + hatch_ord
+        scale = 1.0 / args.render_scale
+        ordered = [[(x*scale, y*scale) for (x,y) in poly] for poly in combined_ord]
+        ordered = order_segments_greedy(ordered)
+
+        
+        # --- Plot ---
+        fig, ax = plt.subplots(figsize=(8, 5))
+        # draw rectangle
+        ax.plot([0, args.canvas_w, args.canvas_w, 0, 0],
+                [0, 0, args.canvas_h, args.canvas_h, 0])
+
+        for pts in ordered:
+            x_vals, y_vals = zip(*pts)
+            ax.plot(x_vals, y_vals)
+
+        plt.show()
     
     # Optional preview  
     try: 
